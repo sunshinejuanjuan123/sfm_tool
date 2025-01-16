@@ -1,0 +1,10 @@
+*.DS_Store
+*.tmp.*
+*.tmp
+**/tmp
+**/__pycache__
+.vscode
+.cache
+*.egg-info
+build
+dist
