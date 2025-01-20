@@ -9,7 +9,7 @@ import cv2
 import random
 from datetime import datetime
 from mapxtoolkit.utils.transform import Transform
-from feature_extract_match.model.read_write_model import read_model
+from sfm_tools.feature_extract_match.model.read_write_model import read_model
 
 def convert_timestamp(timestamp):
     timestamp_obj = datetime.strptime(timestamp, '%Y-%m-%d-%H-%M-%S-%f')

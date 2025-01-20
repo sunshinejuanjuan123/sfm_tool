@@ -5,16 +5,15 @@ import cv2
 import torch
 import argparse
 
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
-from utils.utils import remove_db, get_img_pairs
-from model.detect_match import extract_by_superpoint, match_by_superglue
-from model.colmapClass import import_into_colmap
+from sfm_tools.feature_extract_match.utils.utils import remove_db, get_img_pairs
+from sfm_tools.feature_extract_match.model.detect_match import extract_by_superpoint, match_by_superglue
+from sfm_tools.feature_extract_match.model.colmapClass import import_into_colmap
 
 class GeneralConfig(enum.Enum):
     # superglue model paras
-    superglue_model_path = './third_party/sp_sg_models/superglue/superglue_outdoor.pth'
+    superglue_model_path = os.path.join(os.path.dirname(__file__), 'third_party/sp_sg_models/superglue/superglue_outdoor.pth')
     # superpoint model paras
-    superpoint_model_path = './third_party/sp_sg_models/superpoint/superpoint_v1.pth'
+    superpoint_model_path = os.path.join(os.path.dirname(__file__), 'third_party/sp_sg_models/superpoint/superpoint_v1.pth')
 
     # keypoints paras
     feature_confs = {

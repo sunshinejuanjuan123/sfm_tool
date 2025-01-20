@@ -4,7 +4,7 @@ from tqdm import tqdm
 import json
 import open3d as o3d
 import numpy as np
-from feature_extract_match.model.read_write_model import read_model, read_points3D_text, write_model
+from sfm_tools.feature_extract_match.model.read_write_model import read_model, read_points3D_text, write_model
 import cv2
 from datetime import datetime
 import random

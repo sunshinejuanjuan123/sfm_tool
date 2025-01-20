@@ -12,11 +12,13 @@ if __name__ == "__main__":
         description="use segments result & sam to get ego car mask"
     )
     parser.add_argument("--root_path", help="path to 3dgs format results")
+    parser.add_argument("--model_path", help="path to sam model path")
     args = parser.parse_args()
     root_path = args.root_path
+    model_path = args.model_path
 
     device = "cuda"
-    sam = sam_model_registry["vit_h"](checkpoint="street-gaussians/dependencies/Mask2Former/models/sam_vit_h_4b8939.pth").to(device)
+    sam = sam_model_registry["vit_h"](checkpoint=model_path).to(device)
     predictor = SamPredictor(sam)
 
     images_dir = os.path.join(root_path, 'images')
