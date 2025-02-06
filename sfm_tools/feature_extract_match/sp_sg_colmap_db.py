@@ -6,24 +6,23 @@ import torch
 import argparse
 
 from sfm_tools.feature_extract_match.utils.utils import remove_db, get_img_pairs
-from sfm_tools.feature_extract_match.model.detect_match import extract_by_superpoint, match_by_superglue
+from sfm_tools.feature_extract_match.model.detect_match import extract_by_superpoint, match_by_superglue, filter_match_by_adalam
 from sfm_tools.feature_extract_match.model.colmapClass import import_into_colmap
 
 class GeneralConfig(enum.Enum):
-    # superglue model paras
-    superglue_model_path = os.path.join(os.path.dirname(__file__), 'third_party/sp_sg_models/superglue/superglue_outdoor.pth')
-    # superpoint model paras
-    superpoint_model_path = os.path.join(os.path.dirname(__file__), 'third_party/sp_sg_models/superpoint/superpoint_v1.pth')
+    gim_lightglue_model_path = os.path.join(os.path.dirname(__file__), 'third_party/sp_sg_models/gim_lightglue_100h.ckpt')
 
     # keypoints paras
     feature_confs = {
         'superpoint':{
             'output': 'superpoint',
             'model': {
-                'name': 'superpoint_bn',
-                'nms_radius': 4,
-                'weight': superpoint_model_path,
-                'max_keypoints': 4000,
+                'max_num_keypoints': 2048,
+                'force_num_keypoints': True,
+                'detection_threshold': 0.0,
+                'nms_radius': 3,
+                'trainable': False,
+                'weights': gim_lightglue_model_path,
             },
             'preprocessing': {
                 'grayscale': True,
@@ -38,21 +37,27 @@ class GeneralConfig(enum.Enum):
             'output': 'superglue',
             'model': {
                 'name': 'superglue',
-                'weights': superglue_model_path,
-                'sinkhorn_iterations': 100,
-                'GNN_layers': ['self', 'cross'] * 9,
+                'weights': gim_lightglue_model_path,
+                'filter_threshold': 0.1,
+                'flash': False,
+                'checkpointed': True,
             },
         },
     }
 
-    # ransac paras
-    ransac_confs = {
-        'open': True,
-        'method': cv2.USAC_MAGSAC,
-        'ransacReprojThreshold': 2,
-        'confidence': 0.99999,
-        'maxIters': 50000,
-        'cv2_method': 'select_from_FH',
+    # adalam paras
+    adalam_confs = {
+        'area_ratio': 100,
+        'search_expansion': 4,
+        'ransac_iters': 128,          
+        'min_inliers': 6,  
+        'min_confidence': 200,          
+        'orientation_difference_threshold': None,
+        'scale_rate_threshold': None,
+        'detected_scale_rate_threshold': 5,
+        'refit': True,
+        'force_seed_mnn': True,
+        'device': torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     }
 
 class ImageMatchingDB:
@@ -95,7 +100,10 @@ class ImageMatchingDB:
         print("index_pairs:{}".format(len(index_pairs)))
 
         # generate_matches_by_superglue
-        match_by_superglue(img_fnames, index_pairs, feature_dir=feature_dir, device=self.device, config=self.spsg_conf, debug=False)
+        match_by_superglue(img_fnames, index_pairs, feature_dir=feature_dir, device=self.device, config=self.spsg_conf)
+
+        # filter matches by adalam
+        filter_match_by_adalam(img_fnames, index_pairs, feature_dir=feature_dir, device=self.device, config=self.spsg_conf)
 
         # write result to colmap db
         sparse_init_dir = os.path.join(self.data_root, "colmap/sparse_init")

@@ -7,20 +7,7 @@ from scipy.spatial.transform import Rotation as R
 import open3d as o3d
 import cv2
 import random
-from datetime import datetime
-from mapxtoolkit.utils.transform import Transform
 from sfm_tools.feature_extract_match.model.read_write_model import read_model
-
-def convert_timestamp(timestamp):
-    timestamp_obj = datetime.strptime(timestamp, '%Y-%m-%d-%H-%M-%S-%f')
-    unix_timestamp = int(timestamp_obj.timestamp()*10)
-    return unix_timestamp
-
-def convert_pose(lidar_pose, t):
-    Translation = np.identity(4)
-    Translation[:3, :3] = R.from_euler("xyz", lidar_pose[3:6]).as_matrix()
-    Translation[:3, 3] = t.LLH2ENU(lidar_pose[:3])
-    return Translation
 
 def get_box_corners(center, dimensions, orientation):
 
@@ -62,8 +49,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     data_root = args.data_root
-    meta_dir = os.path.join(data_root, "meta_json")
-    json_idxs = sorted(os.listdir(meta_dir))
+    unisceneproto = os.path.join(data_root, "plannerGt/unisceneproto.json")
+    uniscene = json.load(open(unisceneproto, "r"))
 
     gs_data_root = args.gs_data_root
     sparse_dir = os.path.join(gs_data_root, "colmap/sparse_sfm")
@@ -72,86 +59,100 @@ if __name__ == "__main__":
     sparse_dir = os.path.join(gs_data_root, "colmap/sparse_init")
     cameras2, images2, points3D2 = read_model(sparse_dir, ext=".txt")
 
+    track_info = {}
+    pose_info = {}
+
+    for ego_info in tqdm(uniscene['ego_status']):
+        timestamp = int(round(ego_info['timestamp'], 3)*1000)
+        quat = ego_info['ego_orientation']
+        trsl = ego_info['ego_position']
+        pose_info[timestamp] = np.eye(4)
+        pose_info[timestamp][:3, :3] = R.from_quat([quat["x"], quat["y"], quat["z"], quat["w"]]).as_matrix()
+        pose_info[timestamp][:3, 3] = np.array([trsl["x"], trsl["y"], trsl["z"]])   
+
+    for sensor_info in tqdm(uniscene['sensor_frames']):
+        timestamp = int(round(sensor_info['timestamp'], 3)*1000)
+        track_info[timestamp] = []
+
+    object_type_id_2_class = {
+        0: "Other",
+        1: "Car",
+        2: "Pedestrian",
+        3: "Cyclist",
+        4: "Other",
+        5: "Truck",
+        6: "Other"}
+
+    for objects_info in uniscene['tracks']:
+        for track_frame_info in objects_info['object_states']:
+            object_timestamp = int(round(track_frame_info['timestamp'], 3)*1000)
+
+            for ii in images1.keys():
+                cam, image_name = images1[ii].name.split("/")
+                if cam == "rear_camera" and image_name == (str(object_timestamp)+".jpg"):
+                    K = cameras1[images1[ii].camera_id].params
+                    fx, fy, cx, cy = K[0], K[1], K[2], K[3]
+                    intrinsic_matrix = np.array([[fx, 0, cx, 0],
+                                                    [0, fy, cy, 0],
+                                                    [0, 0, 1, 0],
+                                                    [0, 0, 0, 1]])
+                    Rw2c = images1[ii].qvec2rotmat()
+                    Twc2 = images1[ii].tvec
+                    w2c = np.eye(4)
+                    w2c[:3, :3] = Rw2c
+                    w2c[:3, 3] = Twc2
+                    rgb_img = cv2.imread(os.path.join(gs_data_root, 'images', images1[ii].name))
+                    h, w, _ = rgb_img.shape
+                    ii_unique = ii 
+    
+            for jj in images2.keys():
+                cam, image_name = images2[jj].name.split("/")
+                if cam == "rear_camera" and image_name == (str(object_timestamp)+".jpg"):
+                    jj_unique = jj 
+
+            Rw2c = images2[jj_unique].qvec2rotmat()
+            Twc2 = images2[jj_unique].tvec
+            w2c_opt = np.eye(4)
+            w2c_opt[:3, :3] = Rw2c
+            w2c_opt[:3, 3] = Twc2
+
+            opt = np.linalg.inv(w2c) @ w2c_opt
+
+            if object_timestamp in track_info.keys():
+                center_x, center_y, center_z = track_frame_info['position_from_ego']['x'], track_frame_info['position_from_ego']['y'], track_frame_info['position_from_ego']['z']
+                box_length, box_width, box_height = track_frame_info['length'], track_frame_info['width'], track_frame_info['height']
+                yaw_info = track_frame_info['heading_from_ego']
+
+                center_vcs = np.array([center_x, center_y, center_z, 1])
+                center_wcs = pose_info[object_timestamp] @ center_vcs
+                
+                R_opt = opt[:3, :3]
+                t_opt = opt[:3, 3]
+                
+                rotation_vcs = R.from_euler("xyz", [0, 0, yaw_info], degrees=False).as_matrix()
+
+                rotation_wcs = pose_info[object_timestamp][:3, :3] @ rotation_vcs
+                rotation_wcs = R_opt @ rotation_wcs
+                rotation_wcs = R.from_matrix(rotation_wcs).as_quat()
+                translation = center_wcs[:3]
+                translation = R_opt @ translation + t_opt
+
+                speed_x, speed_y = track_frame_info['velocity_x'], track_frame_info['velocity_y']
+                speed = np.sqrt(speed_x**2 + speed_y**2)
+
+                track_info[object_timestamp].append(
+                    {
+                        "type": object_type_id_2_class[int(objects_info['object_type'])],
+                        "gid": object_type_id_2_class[int(objects_info['object_type'])] + "_" + str(objects_info['object_id']),
+                        "translation": translation.tolist(),
+                        "size": [box_length, box_width, box_height],
+                        "rotation": [rotation_wcs[3], rotation_wcs[0], rotation_wcs[1], rotation_wcs[2]],
+                        "is_moving": bool(speed > 0.2)
+                    }
+                )
     annotations = []
-    for jdx, json_idx in enumerate(tqdm(json_idxs)):
-        json_file = os.path.join(meta_dir, json_idx)
-        meta_info = json.load(open(json_file, "r"))
-        image_info = meta_info["meta_info"]
-
-        lidar_abs_path = os.path.join(data_root, image_info['lidar_path']['car_center'])
-        time_stamp = convert_timestamp(lidar_abs_path.split("/")[-1][:-4])
-        detection_info = meta_info["detection_info"]
-        if jdx == 0:
-            t = Transform(*image_info["lidar_pose"][:3])
-            pose = np.array(convert_pose(image_info["lidar_pose"], t))
-        else:
-            pose = np.array(convert_pose(image_info["lidar_pose"], t))
-
-        for ii in images1.keys():
-            cam, image_name = images1[ii].name.split("/")
-            if cam == "center_camera_fov120" and image_name == (str(time_stamp)+".jpg"):
-                K = cameras1[images1[ii].camera_id].params
-                fx, fy, cx, cy = K[0], K[1], K[2], K[3]
-                intrinsic_matrix = np.array([[fx, 0, cx, 0],
-                                             [0, fy, cy, 0],
-                                             [0, 0, 1, 0],
-                                             [0, 0, 0, 1]])
-                Rw2c = images1[ii].qvec2rotmat()
-                Tw2c = images1[ii].tvec
-                w2c = np.eye(4)
-                w2c[:3, :3] = Rw2c
-                w2c[:3, 3] = Tw2c
-                ii_unique = ii
-            
-        for jj in images2.keys():
-            cam, image_name = images2[jj].name.split("/")
-            if cam == "center_camera_fov120" and image_name == (str(time_stamp)+".jpg"):
-                jj_unique = jj
-        
-        # get opt pose
-        Rw2c = images2[jj_unique].qvec2rotmat()
-        Tw2c = images2[jj_unique].tvec
-        w2c_opt = np.eye(4)
-        w2c_opt[:3, :3] = Rw2c
-        w2c_opt[:3, 3] = Tw2c
-
-        opt = np.linalg.inv(w2c) @ w2c_opt
-
-        objects = []
-        for object_idx in range(len(detection_info["gt_boxes"])):
-            center_x, center_y, center_z = detection_info['gt_boxes'][object_idx][0], detection_info['gt_boxes'][object_idx][1], detection_info['gt_boxes'][object_idx][2]
-            box_length, box_width, box_height = detection_info['gt_boxes'][object_idx][3], detection_info['gt_boxes'][object_idx][4], detection_info['gt_boxes'][object_idx][5]
-            yaw_info = detection_info['gt_boxes'][object_idx][6]
-
-            center_vcs = np.array([center_x, center_y, center_z, 1])
-            center_wcs = pose @ center_vcs
-
-            R_opt = opt[:3, :3]
-            t_opt = opt[:3, 3]
-
-            rotation_vcs = R.from_euler("xyz", [0, 0, yaw_info], degrees=False).as_matrix()
-            rotation_wcs = pose[:3, :3] @ rotation_vcs
-            rotation_wcs = R_opt @ rotation_wcs
-            rotation_wcs = R.from_matrix(rotation_wcs).as_quat()
-            
-            translation = center_wcs[:3].tolist()
-            translation = R_opt @ translation + t_opt
-            speed_x, speed_y, speed_z = detection_info['gt_velocity'][object_idx][0], detection_info['gt_velocity'][object_idx][1], detection_info['gt_velocity'][object_idx][2]
-
-            speed = np.sqrt(speed_x**2 + speed_y**2 + speed_z**2)
-
-            objects.append(
-                {
-                    "type": detection_info['gt_names'][object_idx],
-                    "gid": detection_info['gt_names'][object_idx] + "_" + str(detection_info['gt_inds'][object_idx]),
-                    "translation": translation.tolist(),
-                    "size": [box_length, box_width, box_height],
-                    "rotation": [rotation_wcs[3], rotation_wcs[0], rotation_wcs[1], rotation_wcs[2]],
-                    "is_moving": bool(speed > 0.2)
-                }
-            )
-
-        annotations.append({"timestamp": convert_timestamp(image_info['timestamp']), "objects": objects})
+    for timestamp in track_info.keys():
+        annotations.append({"timestamp": timestamp, "objects": track_info[timestamp]})
 
     with open(os.path.join(gs_data_root, "annotation.json"), "w") as fout:
             json.dump({"frames": annotations}, fout, indent=4)
@@ -163,25 +164,19 @@ if __name__ == "__main__":
     with open(annotation_path, "r") as f:
          annotation_data = json.load(f)
 
-    lidar_project_camera_list = ['center_camera_fov120']
+    lidar_project_camera_list = ['rear_camera']
     obj_pcd = {}
     annotation_frames = annotation_data['frames']
 
     i = 1
-    for jdx, json_idx in enumerate(tqdm(json_idxs)):
-        json_file = os.path.join(meta_dir, json_idx)
-        meta_info = json.load(open(json_file, "r"))
-        image_info = meta_info["meta_info"]
-        
-        if jdx == 0:
-            t1 = Transform(*image_info["lidar_pose"][:3])
-            lidar2enu = np.array(convert_pose(image_info["lidar_pose"], t1))
-        else:
-            lidar2enu = np.array(convert_pose(image_info["lidar_pose"], t1))
+    
+    for sensor_info in tqdm(uniscene['sensor_frames']):
+        timestamp = int(round(sensor_info['timestamp'], 3)*1000)
+        lidar2enu = pose_info[timestamp]
 
         obbs = []
         for idx in range(len(annotation_frames)):
-            if annotation_frames[idx]['timestamp'] == convert_timestamp(image_info['timestamp']):
+            if annotation_frames[idx]['timestamp'] == timestamp:
                 for object in annotation_frames[idx]["objects"]:
                     if object["is_moving"]:
                         if object["gid"] not in obj_pcd:
@@ -212,8 +207,8 @@ if __name__ == "__main__":
             else:
                 continue
         
-        lidar_abs_pcd = os.path.join(data_root, image_info['lidar_path']['car_center'])
-        pcd_data = o3d.io.read_point_cloud(lidar_abs_pcd)
+        lidar_abs_path = os.path.join(data_root, sensor_info['lidar_data'][0]['file_path'])
+        pcd_data = o3d.io.read_point_cloud(lidar_abs_path)
         points = np.array(pcd_data.points)
         nan_rows = np.isnan(points).any(axis=1)
         points = points[~nan_rows]
@@ -236,7 +231,7 @@ if __name__ == "__main__":
         for idx in images.keys():
             if images[idx].name.split("/")[0] not in lidar_project_camera_list:
                 continue
-            if images[idx].name.split("/")[-1][:-4] == str(convert_timestamp(image_info['timestamp'])):
+            if images[idx].name.split("/")[-1][:-4] == str(timestamp):
                 Rw2c = np.array(images[idx].qvec2rotmat())
                 Tw2c = np.array(images[idx].tvec)
                 T = np.eye(4)

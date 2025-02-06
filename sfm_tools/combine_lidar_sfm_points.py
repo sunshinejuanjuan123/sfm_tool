@@ -4,23 +4,10 @@ from tqdm import tqdm
 import json
 import open3d as o3d
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 from sfm_tools.feature_extract_match.model.read_write_model import read_model, read_points3D_text, write_model
 import cv2
-from datetime import datetime
 import random
-from mapxtoolkit.utils.transform import Transform
-from scipy.spatial.transform import Rotation
-
-def convert_timestamp(timestamp):
-    timestamp_obj = datetime.strptime(timestamp, '%Y-%m-%d-%H-%M-%S-%f')
-    unix_timestamp = int(timestamp_obj.timestamp()*10)
-    return unix_timestamp
-
-def convert_pose(lidar_pose, t):
-    Translation = np.identity(4)
-    Translation[:3, :3] = Rotation.from_euler("xyz", lidar_pose[3:6]).as_matrix()
-    Translation[:3, 3] = t.LLH2ENU(lidar_pose[:3])
-    return Translation
 
 if __name__ == "__main__":
 
@@ -32,8 +19,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     data_root = args.data_root
-    meta_dir = os.path.join(data_root, "meta_json")
-    json_idxs = sorted(os.listdir(meta_dir))
+    unisceneproto = os.path.join(data_root, "plannerGt/unisceneproto.json")
+    uniscene = json.load(open(unisceneproto, "r"))
 
     gs_data_root = args.gs_data_root
     sparse_dir = os.path.join(gs_data_root, "colmap/sparse_sfm")
@@ -48,21 +35,20 @@ if __name__ == "__main__":
     with open(lidar_points_path, 'w') as j:
         i = 1
 
-        for jdx, json_idx in enumerate(tqdm(json_idxs)):
-            json_file = os.path.join(meta_dir, json_idx)
-            meta_info = json.load(open(json_file, "r"))
-            image_info = meta_info["meta_info"]
-
-            # pose
-            if jdx == 0:
-                t = Transform(*image_info["lidar_pose"][:3])
-                lidar2enu = convert_pose(image_info["lidar_pose"], t)
-            else:
-                lidar2enu = convert_pose(image_info["lidar_pose"], t)
-
-            lidar_abs_pcd = os.path.join(data_root, image_info["lidar_path"]["car_center"])
-            time_stamp = convert_timestamp(lidar_abs_pcd.split("/")[-1][:-4])
-            pcd_data = o3d.io.read_point_cloud(lidar_abs_pcd)
+        pose_info = {}
+        for ego_info in tqdm(uniscene['ego_status']):
+            timestamp = int(round(ego_info['timestamp'], 3)*1000)
+            quat = ego_info['ego_orientation']
+            trsl = ego_info['ego_position']
+            pose_info[timestamp] = np.eye(4)
+            pose_info[timestamp][:3, :3] = R.from_quat([quat["x"], quat["y"], quat["z"], quat["w"]]).as_matrix()
+            pose_info[timestamp][:3, 3] = np.array([trsl["x"], trsl["y"], trsl["z"]])   
+        
+        for sensor_info in tqdm(uniscene['sensor_frames']):
+            timestamp = int(round(sensor_info['timestamp'], 3)*1000)
+            lidar2enu = pose_info[timestamp]
+            lidar_abs_path = os.path.join(data_root, sensor_info['lidar_data'][0]['file_path'])
+            pcd_data = o3d.io.read_point_cloud(lidar_abs_path)
             points = np.array(pcd_data.points)
             nan_rows = np.isnan(points).any(axis=1)
 
@@ -78,20 +64,20 @@ if __name__ == "__main__":
                 for ii in images.keys():
                     cam_ii, image_name = images[ii].name.split("/")
                     image_timestamp, _ = os.path.splitext(image_name)
-                    if cam == cam_ii and image_timestamp == str(time_stamp):
-                        ii_unique = ii
+                    if cam == cam_ii and  image_timestamp == str(timestamp):
+                        ii_unique = ii 
                 
                 K = cameras[images[ii_unique].camera_id].params
                 fx, fy, cx, cy = K[0], K[1], K[2], K[3]
                 intrinsic_matrix = np.array([[fx, 0, cx, 0],
-                                             [0, fy, cy, 0],
-                                             [0, 0, 1, 0],
-                                             [0, 0, 0, 1]])
+                                            [0, fy, cy, 0],
+                                            [0, 0, 1, 0],
+                                            [0, 0, 0, 1]])
                 Rw2c = images[ii_unique].qvec2rotmat()
-                Tw2c = images[ii_unique].tvec
+                Twc2 = images[ii_unique].tvec
                 w2c = np.eye(4)
                 w2c[:3, :3] = Rw2c
-                w2c[:3, 3] = Tw2c 
+                w2c[:3, 3] = Twc2
                 img_abs_path = os.path.join(gs_data_root, "images", images[ii_unique].name)
                 rgb = cv2.imread(img_abs_path)
                 h, w, _ = rgb.shape

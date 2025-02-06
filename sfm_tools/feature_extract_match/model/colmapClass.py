@@ -254,14 +254,12 @@ def check_name(fname1, fname2):
         return True
 
 def add_matches(db, h5_path, fname_to_id):
-    match_file = h5py.File(os.path.join(h5_path, 'matches.h5'), 'r')
+    match_file = h5py.File(os.path.join(h5_path, 'matches_adalam.h5'), 'r')
 
     added = set()
     n_keys = len(match_file.keys())
     n_total = (n_keys * (n_keys - 1)) // 2
 
-
-    # with tqdm(total=n_total, desc='add_matches') as pbar:
     for camera_key_1 in tqdm(match_file.keys(), desc='add_matches'):
         for img_name_1 in tqdm(match_file[camera_key_1].keys()):
             for camera_key_2 in tqdm(match_file[camera_key_1][img_name_1].keys()):
@@ -271,8 +269,6 @@ def add_matches(db, h5_path, fname_to_id):
                         key_2 = camera_key_2 + "/" + img_name_2
                         id_1 = fname_to_id[key_1]
                         id_2 = fname_to_id[key_2]
-                        # print("id_1:{}, id_2:{}".format(id_1, id_2))
-
                         pair_id = image_ids_to_pair_id(id_1, id_2)
                         if pair_id in added:
                             print(f'Pair {pair_id} ({id_1}, {id_2}) already added!')
@@ -283,13 +279,12 @@ def add_matches(db, h5_path, fname_to_id):
 
 
 def add_two_view_geometry(db, h5_path, fname_to_id):
-    match_file = h5py.File(os.path.join(h5_path, 'matches_ransac.h5'), 'r')
+    match_file = h5py.File(os.path.join(h5_path, 'matches_adalam.h5'), 'r')
 
     added = set()
     n_keys = len(match_file.keys())
     n_total = (n_keys * (n_keys - 1)) // 2
 
-    # with tqdm(total=n_total, desc='add_matches') as pbar:
     for camera_key_1 in tqdm(match_file.keys(), desc='add_two_view_geometry'):
         for img_name_1 in tqdm(match_file[camera_key_1].keys()):
             for camera_key_2 in tqdm(match_file[camera_key_1][img_name_1].keys()):
