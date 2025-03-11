@@ -65,7 +65,7 @@ if __name__ == "__main__":
     image_id = 0
     
     # select all frames
-    for sensor_info in tqdm(uniscene['sensor_frames']):
+    for jdx, sensor_info in enumerate(tqdm(uniscene['sensor_frames'])):
         timestamp = int(round(sensor_info['timestamp'], 3)*1000)
         lidar2enu = pose_info[timestamp]
         for camera_data in sensor_info['camera_data']:
@@ -85,7 +85,7 @@ if __name__ == "__main__":
                 fx, fy, cx, cy = K[0], K[1], K[2], K[3]
 
                 if cam in ['center_camera_fov30', 'center_camera_fov120']:
-                    h_new, w_new = 1280, 1920
+                    h_new, w_new = 1216, 1936
                     rgb_img = cv2.resize(rgb_img, (w_new, h_new), interpolation=cv2.INTER_NEAREST)
                     fx *= w_new / w
                     fy *= h_new / h
@@ -97,6 +97,11 @@ if __name__ == "__main__":
                     shutil.copy(src_img_abs_path, os.path.join(dst_cam, str(timestamp)+suffix))
 
                 sensor2enu = np.matmul(lidar2enu, sensor2lidar)
+                if jdx == 0 and cam == "center_camera_fov120":
+                    init_pose = sensor2enu
+                
+                sensor2enu = np.linalg.inv(init_pose) @ sensor2enu
+
                 enu2sensor = np.linalg.inv(sensor2enu)
                 qvec = rotmat2qvec(enu2sensor[:3, :3])
                 tvec = enu2sensor[:3, 3]
@@ -134,6 +139,3 @@ if __name__ == "__main__":
         path = output_model_path,
         ext = ".txt"
     )
-
-
-

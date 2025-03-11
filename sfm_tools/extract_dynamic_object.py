@@ -53,10 +53,10 @@ if __name__ == "__main__":
     uniscene = json.load(open(unisceneproto, "r"))
 
     gs_data_root = args.gs_data_root
-    sparse_dir = os.path.join(gs_data_root, "colmap/sparse_sfm")
+    sparse_dir = os.path.join(gs_data_root, "colmap/sparse_sfm_enu")
     cameras1, images1, points3D1 = read_model(sparse_dir, ext=".bin")
 
-    sparse_dir = os.path.join(gs_data_root, "colmap/sparse_init")
+    sparse_dir = os.path.join(gs_data_root, "colmap/sparse_init_enu")
     cameras2, images2, points3D2 = read_model(sparse_dir, ext=".txt")
 
     track_info = {}
@@ -87,9 +87,10 @@ if __name__ == "__main__":
         for track_frame_info in objects_info['object_states']:
             object_timestamp = int(round(track_frame_info['timestamp'], 3)*1000)
 
+            skip_timestamp = False
             for ii in images1.keys():
                 cam, image_name = images1[ii].name.split("/")
-                if cam == "rear_camera" and image_name == (str(object_timestamp)+".jpg"):
+                if cam == "center_camera_fov120" and image_name == (str(object_timestamp)+".jpg"):
                     K = cameras1[images1[ii].camera_id].params
                     fx, fy, cx, cy = K[0], K[1], K[2], K[3]
                     intrinsic_matrix = np.array([[fx, 0, cx, 0],
@@ -104,10 +105,14 @@ if __name__ == "__main__":
                     rgb_img = cv2.imread(os.path.join(gs_data_root, 'images', images1[ii].name))
                     h, w, _ = rgb_img.shape
                     ii_unique = ii 
-    
+                    skip_timestamp = True
+            
+            if not skip_timestamp:
+                continue
+
             for jj in images2.keys():
                 cam, image_name = images2[jj].name.split("/")
-                if cam == "rear_camera" and image_name == (str(object_timestamp)+".jpg"):
+                if cam == "center_camera_fov120" and image_name == (str(object_timestamp)+".jpg"):
                     jj_unique = jj 
 
             Rw2c = images2[jj_unique].qvec2rotmat()
@@ -157,14 +162,15 @@ if __name__ == "__main__":
     with open(os.path.join(gs_data_root, "annotation.json"), "w") as fout:
             json.dump({"frames": annotations}, fout, indent=4)
     
-    sparse_dir = os.path.join(gs_data_root, "colmap/sparse_sfm")
+    sparse_dir = os.path.join(gs_data_root, "colmap/sparse_sfm_enu")
     cameras, images, points3D = read_model(sparse_dir, ext=".bin")
 
     annotation_path = os.path.join(gs_data_root, "annotation.json")
     with open(annotation_path, "r") as f:
          annotation_data = json.load(f)
 
-    lidar_project_camera_list = ['rear_camera']
+    lidar_project_camera_list = ['center_camera_fov120']
+    print("lidar_project_camera_list:{}".format(lidar_project_camera_list))
     obj_pcd = {}
     annotation_frames = annotation_data['frames']
 
@@ -197,9 +203,9 @@ if __name__ == "__main__":
                         rotation = object["rotation"]
                         world_corners = get_box_corners(translation, lwh, rotation)
                         obb = o3d.geometry.OrientedBoundingBox.create_from_points(o3d.utility.Vector3dVector(world_corners))
-                        scale_x = 1.1
-                        scale_y = 1.1
-                        scale_z = 1.1
+                        scale_x = 1.0
+                        scale_y = 1.0
+                        scale_z = 1.0
                         extents = np.array(obb.extent) * np.array([scale_x, scale_y, scale_z]) # 更新边界长度
                         obb = o3d.geometry.OrientedBoundingBox(obb.center, obb.R, extents)
                         obj['obb'] = obb

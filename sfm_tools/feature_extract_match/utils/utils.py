@@ -9,7 +9,7 @@ def get_img_pairs(img_fnames):
             time0, _ = os.path.splitext(img_fnames[i].split("/")[-1])
             time1, _ = os.path.splitext(img_fnames[j].split("/")[-1])
             time0, time1 = float(time0)/1000, float(time1)/1000
-            if abs(time0-time1) <= 1.0:
+            if abs(time0-time1) <= 2.0:
                 index_pairs.append((i, j))
     return index_pairs
 

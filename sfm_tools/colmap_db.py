@@ -1,15 +1,8 @@
-import sqlite3
 import numpy as np
 import os
 import argparse
 from sfm_tools.feature_extract_match.model.read_write_model import read_model, rotmat2qvec
 import json
-
-# 解码 pair_id 为图像对
-def decode_pair_id(pair_id):
-    image_id2 = pair_id % 2147483647
-    image_id1 = (pair_id - image_id2) / 2147483647
-    return image_id1, image_id2
 
 if __name__ == "__main__":
 
@@ -20,61 +13,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     data_root = args.gs_data_root
-    
-    db_path = os.path.join(data_root, "colmap/feature_sp_sg/colmap.db")
-    conn = sqlite3.connect(db_path)
-
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT pair_id, rows FROM two_view_geometries")
-    pairs = cursor.fetchall()
-
-    cursor.execute("SELECT image_id, name FROM images")
-    images = cursor.fetchall()
-    image_dict = {image_id: name for image_id, name in images}
-
-    for pair in pairs:
-        image_id1, image_id2 = decode_pair_id(pair[0])
-        name1, name2 = image_dict[image_id1], image_dict[image_id2]
-        cam1, cam2 = name1.split("/")[0], name2.split("/")[0]
-        if cam1 == "center_camera_fov30" and cam2 not in ["center_camera_fov30"]: 
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-        if cam2 == "center_camera_fov30" and cam1 not in ["center_camera_fov30"]: 
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-        
-        if cam1 == "center_camera_fov120" and cam2 not in ["center_camera_fov120", "left_front_camera", "right_front_camera"]: 
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-        if cam2 == "center_camera_fov120" and cam1 not in ["center_camera_fov120", "left_front_camera", "right_front_camera"]: 
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-
-        if cam1 == "left_front_camera" and cam2 not in ["left_front_camera", "center_camera_fov120", "left_rear_camera"]:
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-        if cam2 == "left_front_camera" and cam1 not in ["left_front_camera", "center_camera_fov120", "left_rear_camera"]:
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-        
-        if cam1 == "left_rear_camera" and cam2 not in ["left_rear_camera", "left_front_camera", "rear_camera"]:
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-        if cam2 == "left_rear_camera" and cam1 not in ["left_rear_camera", "left_front_camera", "rear_camera"]:
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-        
-        if cam1 == "rear_camera" and cam2 not in ["rear_camera", "left_rear_camera", "right_rear_camera"]:
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-        if cam2 == "rear_camera" and cam1 not in ["rear_camera", "left_rear_camera", "right_rear_camera"]:
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-        
-        if cam1 == "right_rear_camera" and cam2 not in ["right_rear_camera", "rear_camera", "right_front_camera"]:
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-        if cam2 == "right_rear_camera" and cam1 not in ["right_rear_camera", "rear_camera", "right_front_camera"]:
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-        
-        if cam1 == "right_front_camera" and cam2 not in ["right_front_camera", "right_rear_camera", "center_camera_fov120"]:
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-        if cam2 == "right_front_camera" and cam1 not in ["right_front_camera", "right_rear_camera", "center_camera_fov120"]:
-            cursor.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair[0],))
-
-    conn.commit()
-    conn.close()
-
     sparse_init = os.path.join(data_root, "colmap/sparse_init")
     cameras, images, points3D = read_model(sparse_init, ext=".txt")
     cam_rigid = dict()
@@ -131,4 +69,3 @@ if __name__ == "__main__":
     rigid_config_path = os.path.join(data_root, "colmap/cam_rigid_config.json")
     with open(rigid_config_path, "w+") as f:
         json.dump([cam_rigid], f, indent=4)   
-

@@ -10,19 +10,18 @@ from sfm_tools.feature_extract_match.model.detect_match import extract_by_superp
 from sfm_tools.feature_extract_match.model.colmapClass import import_into_colmap
 
 class GeneralConfig(enum.Enum):
-    gim_lightglue_model_path = os.path.join(os.path.dirname(__file__), 'third_party/sp_sg_models/gim_lightglue_100h.ckpt')
+    superpoint_model_path = os.path.join(os.path.dirname(__file__), 'third_party/superpoint.pth.tar')
+    superglue_model_path = os.path.join(os.path.dirname(__file__), 'third_party/superglue.pth')
 
     # keypoints paras
     feature_confs = {
         'superpoint':{
             'output': 'superpoint',
             'model': {
-                'max_num_keypoints': 2048,
-                'force_num_keypoints': True,
-                'detection_threshold': 0.0,
-                'nms_radius': 3,
-                'trainable': False,
-                'weights': gim_lightglue_model_path,
+                'name': 'superpoint_bn',
+                'nms_radius': 8,
+                'weight': superpoint_model_path,
+                'max_keypoints': 3000,
             },
             'preprocessing': {
                 'grayscale': True,
@@ -37,10 +36,9 @@ class GeneralConfig(enum.Enum):
             'output': 'superglue',
             'model': {
                 'name': 'superglue',
-                'weights': gim_lightglue_model_path,
-                'filter_threshold': 0.1,
-                'flash': False,
-                'checkpointed': True,
+                'weights': superglue_model_path,
+                'sinkhorn_iterations': 100,
+                'GNN_layers': ['self', 'cross'] * 9,
             },
         },
     }

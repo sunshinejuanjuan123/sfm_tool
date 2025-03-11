@@ -23,10 +23,10 @@ if __name__ == "__main__":
     uniscene = json.load(open(unisceneproto, "r"))
 
     gs_data_root = args.gs_data_root
-    sparse_dir = os.path.join(gs_data_root, "colmap/sparse_sfm")
+    sparse_dir = os.path.join(gs_data_root, "colmap/sparse_sfm_enu")
     cameras, images, points3D = read_model(sparse_dir, ext=".bin")
 
-    project_lidar_camera_lists = ['center_camera_fov120', 'rear_camera']
+    project_lidar_camera_lists = ['center_camera_fov30', 'rear_camera']
     lidar_points_dir = os.path.join(sparse_dir, "../lidar_points")
     os.makedirs(lidar_points_dir, exist_ok=True)
     

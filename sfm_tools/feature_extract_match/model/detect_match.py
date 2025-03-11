@@ -11,7 +11,7 @@ from PIL import Image
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from superpoint import SuperPoint
-from superglue import LightGlue
+from superglue import SuperGlue
 from AdaLAM.adalam import adalam
 
 class ImageDataset(torch.utils.data.Dataset):
@@ -84,16 +84,8 @@ def map_tensor(input_, func):
     
 def superpoint_model_init(config, device=torch.device('cpu')):
     conf = config.feature_confs.value['superpoint']
-    detector = SuperPoint(conf['model']).eval().to(device)
-    state_dict = torch.load(conf['model']['weights'], map_location='cpu')
-    if 'state_dict' in state_dict.keys(): state_dict = state_dict['state_dict']
-    for k in list(state_dict.keys()):
-        if k.startswith('model.'):
-            state_dict.pop(k)
-        if k.startswith('superpoint.'):
-            state_dict[k.replace('superpoint.', '', 1)] = state_dict.pop(k)
-    detector.load_state_dict(state_dict)
-    return detector
+    superpoint_model = SuperPoint(conf['model']).eval().to(device)
+    return superpoint_model
 
 @torch.no_grad()
 def extract_by_superpoint(img_fnames,
@@ -105,7 +97,9 @@ def extract_by_superpoint(img_fnames,
     model = superpoint_model_init(config, device=device)
     loader = ImageDataset(conf, img_fnames)
     loader = torch.utils.data.DataLoader(loader, num_workers=4)
-    with h5py.File(f'{feature_dir}/keypoints.h5', mode='w') as f_kp, \
+    with h5py.File(f'{feature_dir}/lafs.h5', mode='w') as f_laf, \
+            h5py.File(f'{feature_dir}/keypoints.h5', mode='w') as f_kp, \
+            h5py.File(f'{feature_dir}/score.h5', mode='w') as f_score, \
             h5py.File(f'{feature_dir}/imagesize.h5', mode='w') as f_size, \
             h5py.File(f'{feature_dir}/descriptors.h5', mode='w') as f_desc:
         for data in tqdm(loader):
@@ -118,40 +112,41 @@ def extract_by_superpoint(img_fnames,
                 size = np.array(data['image'].shape[-2:][::-1])
                 scales = (original_size / size).astype(np.float32)
                 pred['keypoints'] = (pred['keypoints'] + .5) * scales[None] - .5
-
+            
             lafs = pred['keypoints']
+            scores = pred['scores']
             descs = pred['descriptors']
+            desc_dim = descs.shape[-1]
+            descs = descs.reshape(-1, desc_dim)
+            descs = descs.T
 
-            mask_img_path = os.path.join(seg_dir, img_fname.replace(".jpg", ".png"))
-            pil_mask = Image.open(mask_img_path)
+            seg_img_path = os.path.join(seg_dir, img_fname.replace(".jpg", ".png"))
+            pil_mask = Image.open(seg_img_path)
             mask_image = np.array(pil_mask, dtype="int64")
 
-            new_lafs, new_descs = [], []
+            new_lafs, new_scores, new_descs = [], [], []
             for idx in range(lafs.shape[0]):
                 x, y = lafs[idx]
                 if mask_image[int(y), int(x)] not in [55, 64, 19, 61]:
                     new_lafs.append(lafs[idx])
+                    new_scores.append(scores[idx])
                     new_descs.append(descs[idx])
+            
             new_lafs = np.array(new_lafs)
-            new_descs = np.array(new_descs)
+            new_scores = np.array(new_scores)
+            new_descs = np.array(new_descs).T
+
+            f_laf[img_fname] = new_lafs
 
             f_kp[img_fname] = new_lafs
+            f_score[img_fname] = new_scores
             f_desc[img_fname] = new_descs
             f_size[img_fname] = np.array(data['original_size'][0])
-
-    return
+    return 
 
 def superglue_model_init(config, device=torch.device('cpu')):
     conf = config.matcher_confs.value['superpoint']
-    superglue_model = LightGlue(conf['model']).eval().to(device)
-    state_dict = torch.load(conf['model']['weights'], map_location='cpu')
-    if 'state_dict' in state_dict.keys(): state_dict = state_dict['state_dict']
-    for k in list(state_dict.keys()):
-        if k.startswith('superpoint.'):
-            state_dict.pop(k)
-        if k.startswith('model.'):
-            state_dict[k.replace('model.', '', 1)] = state_dict.pop(k)
-    superglue_model.load_state_dict(state_dict)
+    superglue_model = SuperGlue(conf['model']).eval().to(device)
     return superglue_model
 
 @torch.no_grad()
@@ -164,7 +159,8 @@ def match_by_superglue(img_fnames,
     model = superglue_model_init(config, device=device)
     matched = set()
 
-    with h5py.File(f'{feature_dir}/keypoints.h5', mode='r') as f_laf, \
+    with h5py.File(f'{feature_dir}/lafs.h5', mode='r') as f_laf, \
+            h5py.File(f'{feature_dir}/score.h5', mode='r') as f_score, \
             h5py.File(f'{feature_dir}/descriptors.h5', mode='r') as f_desc, \
             h5py.File(f'{feature_dir}/imagesize.h5', mode='r') as f_size, \
             h5py.File(f'{feature_dir}/matches.h5', mode='w') as match_file, \
@@ -176,24 +172,32 @@ def match_by_superglue(img_fnames,
             name0 = "/".join(name0.split('/')[-2:])
             name1 = "/".join(name1.split('/')[-2:])
 
-            # Avoid to recompute duplicates to save time
+            # avoid to recompute duplicates to save time
             if len({(name0, name1), (name1, name0)} & matched):
                 continue
             if name0 not in f_laf or name1 not in f_laf:
                 continue
 
-            data = {'keypoints0': f_laf[name0].__array__(), 'descriptors0': f_desc[name0].__array__(), 
-                    'keypoints1': f_laf[name1].__array__(), 'descriptors1': f_desc[name1].__array__(),
-                    'image_size0': f_size[name0].__array__(), 'image_size1': f_size[name1].__array__()}
-
+            data = {'keypoints0': f_laf[name0].__array__(), 'descriptors0': f_desc[name0].__array__(), 'scores0': f_score[name0].__array__(), 
+                    'keypoints1': f_laf[name1].__array__(), 'descriptors1': f_desc[name1].__array__(), 'scores1': f_score[name1].__array__()}
+            
             data = {
                 k: torch.from_numpy(v)[None].float().to(device)
                 for k, v in data.items()
             }
 
+            data['image0'] = torch.empty((
+                                            1, 
+                                            1,
+                                        ) + tuple(f_size[name0])[::-1])
+            data['image1'] = torch.empty(( 
+                                            1,
+                                            1,
+                                        ) + tuple(f_size[name1])[::-1])
+
             pred = model(data)
             matches = pred['matches0'][0].cpu().short().numpy()
-            matching_score = pred['scores'][0].cpu().half().numpy()
+            matching_score = pred['matching_scores0'][0].cpu().half().numpy()
             group = match_file.require_group(name0)
             group_score = matches_score_file.require_group(name0)
             group.create_dataset(name1, data=matches)
@@ -254,7 +258,7 @@ def filter_match_by_adalam(img_fnames,
         
         keypoints0_valid = keypoints0[index]
         matches_valid = matches[index]
-        matching_scores_valid = matching_scores
+        matching_scores_valid = matching_scores[index]
 
         filtered_matches = adalam_filter.filter_matches(
             k1=keypoints0_valid,
