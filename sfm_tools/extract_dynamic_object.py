@@ -46,6 +46,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--data_root", help="path to pvb data")
     parser.add_argument("--gs_data_root", help="path to 3dgs format results")
+    parser.add_argument("--cam", help="project camera")
     args = parser.parse_args()
 
     data_root = args.data_root
@@ -59,6 +60,7 @@ if __name__ == "__main__":
     sparse_dir = os.path.join(gs_data_root, "colmap/sparse_init_enu")
     cameras2, images2, points3D2 = read_model(sparse_dir, ext=".txt")
 
+    project_camera = args.cam
     track_info = {}
     pose_info = {}
 
@@ -90,7 +92,7 @@ if __name__ == "__main__":
             skip_timestamp = False
             for ii in images1.keys():
                 cam, image_name = images1[ii].name.split("/")
-                if cam == "center_camera_fov120" and image_name == (str(object_timestamp)+".jpg"):
+                if cam == project_camera and image_name == (str(object_timestamp)+".jpg"):
                     K = cameras1[images1[ii].camera_id].params
                     fx, fy, cx, cy = K[0], K[1], K[2], K[3]
                     intrinsic_matrix = np.array([[fx, 0, cx, 0],
@@ -112,7 +114,7 @@ if __name__ == "__main__":
 
             for jj in images2.keys():
                 cam, image_name = images2[jj].name.split("/")
-                if cam == "center_camera_fov120" and image_name == (str(object_timestamp)+".jpg"):
+                if cam == project_camera and image_name == (str(object_timestamp)+".jpg"):
                     jj_unique = jj 
 
             Rw2c = images2[jj_unique].qvec2rotmat()
@@ -169,7 +171,7 @@ if __name__ == "__main__":
     with open(annotation_path, "r") as f:
          annotation_data = json.load(f)
 
-    lidar_project_camera_list = ['center_camera_fov120']
+    lidar_project_camera_list = [project_camera]
     print("lidar_project_camera_list:{}".format(lidar_project_camera_list))
     obj_pcd = {}
     annotation_frames = annotation_data['frames']

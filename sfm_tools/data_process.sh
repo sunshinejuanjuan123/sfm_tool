@@ -36,14 +36,14 @@ python -m sfm_tools.colmap_db --gs_data_root $gs_data_root
 # colmap point triangulator & bundle adjuestment
 log_step "Point triangulator & BA"
 mkdir -p $gs_data_root/colmap/sparse_sfm
-/home/mnt/zhangjiahao1/benchmark_v1/3dgs_dev/colmap/build/src/colmap/exe/colmap point_triangulator \
+colmap point_triangulator \
     --image_path $gs_data_root/images \
     --database_path $gs_data_root/colmap/feature_sp_sg/colmap.db \
     --input_path $gs_data_root/colmap/sparse_init/ \
     --output_path $gs_data_root/colmap/sparse_sfm/ \
     --refine_extrinsics 1 \
     
-/home/mnt/zhangjiahao1/benchmark_v1/3dgs_dev/colmap/build/src/colmap/exe/colmap rig_bundle_adjuster \
+colmap rig_bundle_adjuster \
     --input_path $gs_data_root/colmap/sparse_sfm \
     --output_path $gs_data_root/colmap/sparse_sfm \
     --rig_config_path $gs_data_root/colmap/cam_rigid_config.json \
