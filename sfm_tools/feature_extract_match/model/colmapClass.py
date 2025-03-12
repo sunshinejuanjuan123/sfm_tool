@@ -9,7 +9,7 @@ import sys
 import sqlite3
 import numpy as np
 import time
-from read_write_model import read_cameras_text
+from sfm_tools.feature_extract_match.model.read_write_model import read_cameras_text
 
 IS_PYTHON3 = sys.version_info[0] >= 3
 

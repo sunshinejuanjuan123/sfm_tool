@@ -5,14 +5,12 @@ import numpy as np
 import h5py
 from tqdm import tqdm
 import collections.abc as collections
-import sys
 import os
 from PIL import Image
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from superpoint import SuperPoint
-from superglue import SuperGlue
-from AdaLAM.adalam import adalam
+from sfm_tools.feature_extract_match.model.superpoint import SuperPoint
+from sfm_tools.feature_extract_match.model.superglue import SuperGlue
+from adalam import adalam
 
 class ImageDataset(torch.utils.data.Dataset):
     default_conf = {

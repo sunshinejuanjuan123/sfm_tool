@@ -5,7 +5,6 @@ from PIL import Image
 from segment_anything import sam_model_registry, SamPredictor
 from tqdm import tqdm 
 import numpy as np
-os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
