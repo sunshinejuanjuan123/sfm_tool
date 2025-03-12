@@ -25,12 +25,15 @@ if __name__ == "__main__":
     dst_img_dir = os.path.join(root_path, 'mask_combine')
 
     os.makedirs(dst_img_dir, exist_ok=True)
-
+ 
     for cam in tqdm(os.listdir(src_img_dir)):
-        mask_combine = np.ones((1216, 1936))
         os.makedirs(os.path.join(dst_img_dir, cam), exist_ok=True)
+        pil_image = Image.open(os.path.join(src_img_dir, cam, os.listdir(os.path.join(src_img_dir, cam))[0]))
+        img_seg = np.array(pil_image, dtype="int64")
+        h, w, _ = img_seg.shape
+        mask_combine = np.ones((h, w))
         if cam == "center_camera_fov120":
-            ego_car_combine = np.ones((1216, 1936))
+            ego_car_combine = np.ones((h, w))
             for img_name in os.listdir(os.path.join(src_img_dir, cam)):
                 pil_image = Image.open(os.path.join(seg_dir, cam, img_name.replace(".jpg", ".png")))
                 img_seg = np.array(pil_image, dtype="int64")
@@ -58,7 +61,7 @@ if __name__ == "__main__":
                 visual_mask = (1-black_mask).astype(np.uint8)
                 cv2.imwrite(os.path.join(dst_img_dir, cam, img_name.replace(".jpg", ".png")), visual_mask)
         elif cam in ["left_rear_camera"]:
-            ego_car_combine = np.ones((1216, 1936))
+            ego_car_combine = np.ones((h, w))
             for img_name in os.listdir(os.path.join(src_img_dir, cam)):
                 pil_image = Image.open(os.path.join(seg_dir, cam, img_name.replace(".jpg", ".png")))
                 img_seg = np.array(pil_image, dtype="int64")
@@ -77,7 +80,7 @@ if __name__ == "__main__":
                 visual_mask *= ego_car_combine.astype(np.uint8)
                 cv2.imwrite(os.path.join(dst_img_dir, cam, img_name.replace(".jpg", ".png")), visual_mask)
         elif cam in ["right_rear_camera"]:
-            ego_car_combine = np.ones((1216, 1936))
+            ego_car_combine = np.ones((h, w))
             for img_name in os.listdir(os.path.join(src_img_dir, cam)):
                 pil_image = Image.open(os.path.join(seg_dir, cam, img_name.replace(".jpg", ".png")))
                 img_seg = np.array(pil_image, dtype="int64")

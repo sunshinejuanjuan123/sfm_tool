@@ -48,6 +48,8 @@ if __name__ == "__main__":
             cam_info_all[cam_info['camera_name']]['extrinsic'][:3, :3] = R.from_quat([quat["x"], quat["y"], quat["z"], quat["w"]]).as_matrix()
             cam_info_all[cam_info['camera_name']]['extrinsic'][:3, :3] = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]]) @ cam_info_all[cam_info['camera_name']]['extrinsic'][:3, :3]
             cam_info_all[cam_info['camera_name']]['extrinsic'][:3, 3] = np.array([trsl["x"], trsl["y"], trsl["z"]]) 
+
+            cam_info_all[cam_info['camera_name']]['size'] = [cam_info["height"], cam_info["width"]]
     
     cam_id_2_name = {v['id']: k for k, v in cam_info_all.items()}
     
@@ -63,7 +65,15 @@ if __name__ == "__main__":
     os.makedirs(output_path, exist_ok=True)
     cameras, images, points3D = {}, {}, {}
     image_id = 0
+
+    # keep all camera img size to same in h_min, w_min
+    h_new, w_new = cam_info_all['center_camera_fov120']['size']
     
+    for cam in cam_info_all.keys():
+        h, w = cam_info_all[cam]['size']
+        h_new = min(h_new, h)
+        w_new = min(w_new, w)
+
     # select all frames
     for jdx, sensor_info in enumerate(tqdm(uniscene['sensor_frames'])):
         timestamp = int(round(sensor_info['timestamp'], 3)*1000)
@@ -84,17 +94,13 @@ if __name__ == "__main__":
                 K = cam_info_all[cam]['intrinsic']
                 fx, fy, cx, cy = K[0], K[1], K[2], K[3]
 
-                if cam in ['center_camera_fov30', 'center_camera_fov120']:
-                    h_new, w_new = 1216, 1936
-                    rgb_img = cv2.resize(rgb_img, (w_new, h_new), interpolation=cv2.INTER_NEAREST)
-                    fx *= w_new / w
-                    fy *= h_new / h
-                    cx *= w_new / w
-                    cy *= h_new / h 
-                    cv2.imwrite(os.path.join(dst_cam, str(timestamp)+suffix), rgb_img)
-                    h, w = h_new, w_new
-                else:
-                    shutil.copy(src_img_abs_path, os.path.join(dst_cam, str(timestamp)+suffix))
+                rgb_img = cv2.resize(rgb_img, (w_new, h_new), interpolation=cv2.INTER_NEAREST)
+                fx *= w_new / w
+                fy *= h_new / h
+                cx *= w_new / w
+                cy *= h_new / h 
+                cv2.imwrite(os.path.join(dst_cam, str(timestamp)+suffix), rgb_img)
+                h, w = h_new, w_new
 
                 sensor2enu = np.matmul(lidar2enu, sensor2lidar)
                 if jdx == 0 and cam == "center_camera_fov120":
