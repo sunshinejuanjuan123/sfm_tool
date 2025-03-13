@@ -31,9 +31,10 @@ if __name__ == "__main__":
 
     os.makedirs(dst_img_dir, exist_ok=True)
 
-    uniscene_ego_car_mask = os.path.join(data_root, "ego_car_masks")
+    uniscene_ego_car_mask = os.path.join(data_root, "pvbGt/ego_car_masks")
 
     if os.path.exists(uniscene_ego_car_mask):
+        print("use uniscene ego car mask")
         for cam in tqdm(os.listdir(src_img_dir)):
             os.makedirs(os.path.join(dst_img_dir, cam), exist_ok=True)
             pil_image = Image.open(os.path.join(src_img_dir, cam, os.listdir(os.path.join(src_img_dir, cam))[0]))
@@ -45,6 +46,7 @@ if __name__ == "__main__":
                 cv2.imwrite(os.path.join(dst_img_dir, cam, img_name), mask_img)
     else:
         if car_type == "zhiji":
+            print("zhiji ego car mask")
             for cam in tqdm(os.listdir(src_img_dir)):
                 os.makedirs(os.path.join(dst_img_dir, cam), exist_ok=True)
                 pil_image = Image.open(os.path.join(src_img_dir, cam, os.listdir(os.path.join(src_img_dir, cam))[0]))
@@ -116,7 +118,8 @@ if __name__ == "__main__":
 
                         visual_mask *= ego_car_combine.astype(np.uint8)
                         cv2.imwrite(os.path.join(dst_img_dir, cam, img_name.replace(".jpg", ".png")), visual_mask)
-        else:
+        elif car_type == "pap":
+            print("pap ego car mask")
             for cam in tqdm(os.listdir(src_img_dir)):
                 mask_cam_dir = os.path.join(dst_img_dir, cam)
                 os.makedirs(mask_cam_dir, exist_ok=True)
@@ -187,3 +190,17 @@ if __name__ == "__main__":
                 else:
                     for img_name in os.listdir(os.path.join(src_cam_dir)):
                         cv2.imwrite(os.path.join(mask_cam_dir, img_name.replace(".jpg", ".png")), mask_combine)
+        else:
+            print("not deal ego car mask")
+            for cam in tqdm(os.listdir(src_img_dir)):
+                mask_cam_dir = os.path.join(dst_img_dir, cam)
+                os.makedirs(mask_cam_dir, exist_ok=True)
+
+                src_cam_dir = os.path.join(src_img_dir, cam)
+                pil_image = Image.open(os.path.join(src_img_dir, cam, os.listdir(os.path.join(src_img_dir, cam))[0]))
+                img_seg = np.array(pil_image, dtype="int64")
+                h, w, _ = img_seg.shape
+
+                mask_combine = np.ones((h, w))
+                for img_name in os.listdir(os.path.join(src_cam_dir)):
+                    cv2.imwrite(os.path.join(mask_cam_dir, img_name.replace(".jpg", ".png")), mask_combine)
