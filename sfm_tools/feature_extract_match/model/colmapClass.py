@@ -9,7 +9,10 @@ import sys
 import sqlite3
 import numpy as np
 import time
-from sfm_tools.feature_extract_match.model.read_write_model import read_cameras_text
+from sfm_tools.feature_extract_match.model.read_write_model import (
+    CAMERA_MODEL_NAMES,
+    read_cameras_text,
+)
 
 IS_PYTHON3 = sys.version_info[0] >= 3
 
@@ -211,18 +214,28 @@ def add_keypoints(db, h5_path, image_path, img_ext, sparse_init_dir):
     fname_to_id = {}
 
     cameras_init = read_cameras_text(os.path.join(sparse_init_dir, "cameras.txt"))
-    
-    # model id 1
-    for camera_id in cameras_init.keys():
-        _ = create_camera(db, 1, width=cameras_init[camera_id].width, height=cameras_init[camera_id].height, param_arr=cameras_init[camera_id].params)
-    
+
+    for camera_id in sorted(cameras_init.keys()):
+        cam = cameras_init[camera_id]
+        model_id = CAMERA_MODEL_NAMES[cam.model].model_id
+        db.add_camera(
+            model_id,
+            cam.width,
+            cam.height,
+            cam.params,
+            camera_id=camera_id,
+        )
+
     camera_name_2_id = {'center_camera_fov120': 1,
                         'left_front_camera': 2,
                         'left_rear_camera': 3,
                         'right_front_camera': 4,
                         'right_rear_camera': 5,
                         'rear_camera': 6,
-                        'center_camera_fov30': 7}
+                        'center_camera_fov30': 7,
+                        'front_camera_fov195': 8,
+                        'rear_camera_fov195': 9,
+                        'right_camera_fov195': 10}
 
     for camera_name in tqdm(list(keypoint_f.keys()), desc='add_keypoints'):
         for image_name in tqdm(list(keypoint_f[camera_name].keys())):

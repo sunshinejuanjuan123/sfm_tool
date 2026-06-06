@@ -27,7 +27,10 @@ if __name__ == "__main__":
                     'right_front_camera': {'colmap_id': 4},
                     'right_rear_camera': {'colmap_id': 5},
                     'rear_camera': {'colmap_id': 6},
-                    'center_camera_fov30': {'colmap_id': 7}}
+                    'center_camera_fov30': {'colmap_id': 7},
+                    'front_camera_fov195': {'colmap_id': 8},
+                    'rear_camera_fov195': {'colmap_id': 9},
+                    'right_camera_fov195': {'colmap_id': 10}}
 
     for cam_info in uniscene['cameras']:
         if cam_info['camera_name'] in cam_info_all.keys():
@@ -68,51 +71,61 @@ if __name__ == "__main__":
                         if cam == "center_camera_fov120":
                             init_pose = np.matmul(lidar2enu, sensor2lidar) 
     
-    sparse_sfm_dir = os.path.join(output_path, "colmap/sparse_sfm")
-    cameras, images, points3D = read_model(sparse_sfm_dir, ext=".bin")
+    sparse_sfm_candidates = [
+        ("sparse_sfm", "sparse_sfm_enu"),
+        ("sparse_sfm_no_opt", "sparse_sfm_enu_no_opt"),
+    ]
+    for sparse_name, enu_name in sparse_sfm_candidates:
+        sparse_sfm_dir = os.path.join(output_path, "colmap", sparse_name)
+        cameras_bin = os.path.join(sparse_sfm_dir, "cameras.bin")
+        if not os.path.isfile(cameras_bin):
+            continue
 
-    new_cameras, new_images, new_points3D = {}, {}, {}
-    for idx in tqdm(images.keys()):
-        Rw2c = images[idx].qvec2rotmat()
-        Tw2c = images[idx].tvec
-        w2c = np.eye(4)
-        w2c[:3, :3] = Rw2c
-        w2c[:3, 3] = Tw2c
-        w2c_enu = w2c @ np.linalg.inv(init_pose)
-        new_images[images[idx].id] = Image(
-            id=images[idx].id,
-            qvec=rotmat2qvec(w2c_enu[:3, :3]),
-            tvec=w2c_enu[:3, 3],
-            camera_id=images[idx].camera_id,
-            name=images[idx].name,
-            xys=images[idx].xys,
-            point3D_ids=images[idx].point3D_ids,
+        cameras, images, points3D = read_model(sparse_sfm_dir, ext=".bin")
+
+        new_cameras, new_images, new_points3D = {}, {}, {}
+        for idx in tqdm(images.keys(), desc=f"{sparse_name} -> ENU"):
+            Rw2c = images[idx].qvec2rotmat()
+            Tw2c = images[idx].tvec
+            w2c = np.eye(4)
+            w2c[:3, :3] = Rw2c
+            w2c[:3, 3] = Tw2c
+            w2c_enu = w2c @ np.linalg.inv(init_pose)
+            new_images[images[idx].id] = Image(
+                id=images[idx].id,
+                qvec=rotmat2qvec(w2c_enu[:3, :3]),
+                tvec=w2c_enu[:3, 3],
+                camera_id=images[idx].camera_id,
+                name=images[idx].name,
+                xys=images[idx].xys,
+                point3D_ids=images[idx].point3D_ids,
+            )
+
+        for jdx in tqdm(points3D.keys(), desc="points3D -> ENU"):
+            xyz = points3D[jdx].xyz
+            xyz = np.hstack((xyz, 1))
+            new_xyz = init_pose @ xyz
+            new_xyz = new_xyz[:3]
+            new_points3D[points3D[jdx].id] = Point3D(
+                id=points3D[jdx].id,
+                xyz=np.array(new_xyz),
+                rgb=points3D[jdx].rgb,
+                error=points3D[jdx].error,
+                image_ids=points3D[jdx].image_ids,
+                point2D_idxs=points3D[jdx].point2D_idxs,
+            )
+
+        new_cameras = cameras
+        output_enu_model = os.path.join(output_path, "colmap", enu_name)
+        os.makedirs(output_enu_model, exist_ok=True)
+
+        write_model(
+            new_cameras,
+            new_images,
+            new_points3D,
+            output_enu_model,
+            ext=".bin",
         )
-    
-
-    for jdx in tqdm(points3D.keys()):
-        xyz=points3D[jdx].xyz
-        xyz=np.hstack((xyz, 1))
-        new_xyz = init_pose @ xyz
-        new_xyz = new_xyz[:3]
-        new_points3D[points3D[jdx].id] = Point3D(
-            id=points3D[jdx].id,
-            xyz=np.array(new_xyz),
-            rgb=points3D[jdx].rgb,
-            error=points3D[jdx].error,
-            image_ids=points3D[jdx].image_ids,
-            point2D_idxs=points3D[jdx].point2D_idxs,
-        )
-    
-    new_cameras = cameras
-    output_enu_model = os.path.join(output_path, "colmap/sparse_sfm_enu")
-    os.makedirs(output_enu_model, exist_ok=True)
-
-    write_model(new_cameras,
-                new_images,
-                new_points3D,
-                output_enu_model,
-                ext=".bin")
     
     sparse_init_dir = os.path.join(output_path, "colmap/sparse_init")
     cameras, images, points3D = read_model(sparse_init_dir, ext=".txt")

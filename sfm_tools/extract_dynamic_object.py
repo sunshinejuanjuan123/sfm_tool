@@ -9,6 +9,18 @@ import cv2
 import random
 from sfm_tools.feature_extract_match.model.read_write_model import read_model
 
+
+def _resolve_sparse_enu_dir(gs_data_root):
+    for name in ("sparse_sfm_enu", "sparse_sfm_enu_no_opt"):
+        path = os.path.join(gs_data_root, "colmap", name)
+        if os.path.isfile(os.path.join(path, "cameras.bin")):
+            return path
+    raise FileNotFoundError(
+        f"No sparse SfM ENU model under {gs_data_root}/colmap "
+        "(expected sparse_sfm_enu or sparse_sfm_enu_no_opt)"
+    )
+
+
 def get_box_corners(center, dimensions, orientation):
 
     cx, cy, cz = center
@@ -54,7 +66,7 @@ if __name__ == "__main__":
     uniscene = json.load(open(unisceneproto, "r"))
 
     gs_data_root = args.gs_data_root
-    sparse_dir = os.path.join(gs_data_root, "colmap/sparse_sfm_enu")
+    sparse_dir = _resolve_sparse_enu_dir(gs_data_root)
     cameras1, images1, points3D1 = read_model(sparse_dir, ext=".bin")
 
     sparse_dir = os.path.join(gs_data_root, "colmap/sparse_init_enu")
@@ -154,7 +166,7 @@ if __name__ == "__main__":
                         "translation": translation.tolist(),
                         "size": [box_length, box_width, box_height],
                         "rotation": [rotation_wcs[3], rotation_wcs[0], rotation_wcs[1], rotation_wcs[2]],
-                        "is_moving": bool(speed > 0.2)
+                        "is_moving": bool(speed > 1.0)
                     }
                 )
     annotations = []
@@ -164,7 +176,7 @@ if __name__ == "__main__":
     with open(os.path.join(gs_data_root, "annotation.json"), "w") as fout:
             json.dump({"frames": annotations}, fout, indent=4)
     
-    sparse_dir = os.path.join(gs_data_root, "colmap/sparse_sfm_enu")
+    sparse_dir = _resolve_sparse_enu_dir(gs_data_root)
     cameras, images, points3D = read_model(sparse_dir, ext=".bin")
 
     annotation_path = os.path.join(gs_data_root, "annotation.json")
@@ -287,8 +299,23 @@ if __name__ == "__main__":
     os.makedirs(save_path, exist_ok=True)
 
     for gid, pcd in obj_pcd.items():
-        if np.array(pcd['xyz']).shape[0] > 0:
+        xyz = np.array(pcd['xyz'], dtype=np.float32)
+        rgb = np.array(pcd['rgb'], dtype=np.float32)
+
+        num_points = xyz.shape[0]
+
+        if num_points > 0:
+            # 如果点数超过9000，随机采样9000个点
+            if num_points > 9000:
+                indices = np.random.choice(num_points, 9000, replace=False)
+                xyz = xyz[indices]
+                rgb = rgb[indices]
+
             point_cloud = o3d.geometry.PointCloud()
-            point_cloud.points = o3d.utility.Vector3dVector(np.array(pcd['xyz']).astype(np.float32))
-            point_cloud.colors = o3d.utility.Vector3dVector(np.array(pcd['rgb']).astype(np.float32))
-            o3d.io.write_point_cloud(str(save_path + f"{gid}.ply"), point_cloud)
+            point_cloud.points = o3d.utility.Vector3dVector(xyz)
+            point_cloud.colors = o3d.utility.Vector3dVector(rgb)
+
+            o3d.io.write_point_cloud(
+                str(save_path + f"{gid}.ply"),
+                point_cloud
+            )

@@ -94,7 +94,10 @@ if __name__ == "__main__":
                 'right_front_camera': {'colmap_id': 4},
                 'right_rear_camera': {'colmap_id': 5},
                 'rear_camera': {'colmap_id': 6},
-                'center_camera_fov30': {'colmap_id': 7}}
+                'center_camera_fov30': {'colmap_id': 7},
+                'front_camera_fov195': {'colmap_id': 8},
+                'rear_camera_fov195': {'colmap_id': 9},
+                'right_camera_fov195': {'colmap_id': 10}}
 
     for cam_info in uniscene['cameras']:
         if cam_info['camera_name'] in cam_info_all.keys():

@@ -24,13 +24,22 @@ if __name__ == "__main__":
     unisceneproto = os.path.join(data_root, "plannerGt/unisceneproto.json")
     uniscene = json.load(open(unisceneproto, "r"))
     
+    FISHEYE_CAMERAS = {
+        'front_camera_fov195',
+        'rear_camera_fov195',
+        'right_camera_fov195',
+    }
+
     cam_info_all = {'center_camera_fov120': {'colmap_id': 1},
                     'left_front_camera': {'colmap_id': 2},
                     'left_rear_camera': {'colmap_id': 3},
                     'right_front_camera': {'colmap_id': 4},
                     'right_rear_camera': {'colmap_id': 5},
                     'rear_camera': {'colmap_id': 6},
-                    'center_camera_fov30': {'colmap_id': 7}}
+                    'center_camera_fov30': {'colmap_id': 7},
+                    'front_camera_fov195': {'colmap_id': 8},
+                    'rear_camera_fov195': {'colmap_id': 9},
+                    'right_camera_fov195': {'colmap_id': 10}}
 
     for cam_info in uniscene['cameras']:
         if cam_info['camera_name'] in cam_info_all.keys():
@@ -40,6 +49,9 @@ if __name__ == "__main__":
             # intrinsic fx, fy, cx, cy
             fx, fy, cx, cy = cam_info['intrinsic']['fx'], cam_info['intrinsic']['fy'], cam_info['intrinsic']['cx'], cam_info['intrinsic']['cy']
             cam_info_all[cam_info['camera_name']]['intrinsic'] = np.array([fx, fy, cx, cy])
+            distortion = cam_info['intrinsic'].get('distortion', [0.0, 0.0, 0.0, 0.0])
+            cam_info_all[cam_info['camera_name']]['distortion'] = np.array(distortion[:4], dtype=np.float64)
+            cam_info_all[cam_info['camera_name']]['is_fisheye'] = cam_info['camera_name'] in FISHEYE_CAMERAS
             
             # extrinsic 4*4
             quat = cam_info["extrinsic"]["quaternion"]
@@ -123,13 +135,19 @@ if __name__ == "__main__":
                     point3D_ids=np.array([])
                 )
                 
-                instrinsic = np.array([fx, fy, cx, cy])
+                if cam_info_all[cam].get('is_fisheye', False):
+                    k1, k2, k3, k4 = cam_info_all[cam]['distortion']
+                    camera_params = np.array([fx, fy, cx, cy, k1, k2, k3, k4])
+                    camera_model = "OPENCV_FISHEYE"
+                else:
+                    camera_params = np.array([fx, fy, cx, cy])
+                    camera_model = "PINHOLE"
                 cameras[cam_info_all[cam]['colmap_id']] = Camera(
                     id=cam_info_all[cam]['colmap_id'],
-                    model="PINHOLE",
+                    model=camera_model,
                     width=w,
                     height=h,
-                    params=instrinsic
+                    params=camera_params
                 )
 
     cameras = OrderedDict(sorted(cameras.items(), key=lambda x: x[0]))

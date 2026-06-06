@@ -23,7 +23,10 @@ if __name__ == "__main__":
                     'right_front_camera': 4,  
                     'right_rear_camera': 5,
                     'rear_camera': 6,
-                    'center_camera_fov30': 7}
+                    'center_camera_fov30': 7,
+                    'front_camera_fov195': 8,
+                    'rear_camera_fov195': 9,
+                    'right_camera_fov195': 10}
     
     ref_camera_id = camera_name_2_id['center_camera_fov120']
     cam_rigid["ref_camera_id"] = ref_camera_id

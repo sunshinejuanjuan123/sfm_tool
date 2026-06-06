@@ -72,7 +72,15 @@ if __name__ == "__main__":
                         visual_mask *= ego_car_combine.astype(np.uint8)
                         cv2.imwrite(os.path.join(dst_img_dir, cam, img_name.replace(".jpg", ".png")), visual_mask)
                     
-                elif cam in ["left_front_camera", "right_front_camera", "rear_camera", "center_camera_fov30"]:
+                elif cam in [
+                    "left_front_camera",
+                    "right_front_camera",
+                    "rear_camera",
+                    "center_camera_fov30",
+                    "front_camera_fov195",
+                    "rear_camera_fov195",
+                    "right_camera_fov195",
+                ]:
                     for img_name in os.listdir(os.path.join(src_img_dir, cam)):
                         rgb_img = cv2.imread(os.path.join(src_img_dir, cam, img_name))
                         

@@ -8,3 +8,5 @@
 *.egg-info
 build
 dist
+sfm_tools/feature_extract_match/third_party/superglue.pth
+sfm_tools/feature_extract_match/third_party/superpoint.pth.tar
