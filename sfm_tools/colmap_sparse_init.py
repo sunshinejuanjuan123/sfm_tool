@@ -1,16 +1,22 @@
 import argparse
 import os
-from tqdm import tqdm
-import json
-import shutil
-import numpy as np
-import cv2
 from collections import OrderedDict
-from scipy.spatial.transform import Rotation as R
-from sfm_tools.feature_extract_match.model.read_write_model import Image, Camera, rotmat2qvec, write_model
+
+import cv2
+import numpy as np
+from tqdm import tqdm
+
+from sfm_tools.feature_extract_match.model.read_write_model import Camera, Image, rotmat2qvec, write_model
+from sfm_tools.filter_colmap_by_camera import filter_sparse_init_sfm
+from sfm_tools.uniscene_cameras import (
+    build_cam_info_all,
+    build_pose_info,
+    find_init_pose,
+    load_uniscene,
+)
 
 if __name__ == "__main__":
-    
+
     parser = argparse.ArgumentParser(
         description="use meta json to creat colmap sparse init models"
     )
@@ -18,148 +24,98 @@ if __name__ == "__main__":
     parser.add_argument("--output_path", help="path to 3dgs format results")
     args = parser.parse_args()
 
-    data_root = args.data_root 
+    data_root = args.data_root
     output_path = args.output_path
 
-    unisceneproto = os.path.join(data_root, "plannerGt/unisceneproto.json")
-    uniscene = json.load(open(unisceneproto, "r"))
-    
-    FISHEYE_CAMERAS = {
-        'front_camera_fov195',
-        'rear_camera_fov195',
-        'right_camera_fov195',
-    }
-
-    cam_info_all = {'center_camera_fov120': {'colmap_id': 1},
-                    'left_front_camera': {'colmap_id': 2},
-                    'left_rear_camera': {'colmap_id': 3},
-                    'right_front_camera': {'colmap_id': 4},
-                    'right_rear_camera': {'colmap_id': 5},
-                    'rear_camera': {'colmap_id': 6},
-                    'center_camera_fov30': {'colmap_id': 7},
-                    'front_camera_fov195': {'colmap_id': 8},
-                    'rear_camera_fov195': {'colmap_id': 9},
-                    'right_camera_fov195': {'colmap_id': 10}}
-
-    for cam_info in uniscene['cameras']:
-        if cam_info['camera_name'] in cam_info_all.keys():
-
-            cam_info_all[cam_info['camera_name']]['id'] = cam_info['camera_id']
-            
-            # intrinsic fx, fy, cx, cy
-            fx, fy, cx, cy = cam_info['intrinsic']['fx'], cam_info['intrinsic']['fy'], cam_info['intrinsic']['cx'], cam_info['intrinsic']['cy']
-            cam_info_all[cam_info['camera_name']]['intrinsic'] = np.array([fx, fy, cx, cy])
-            distortion = cam_info['intrinsic'].get('distortion', [0.0, 0.0, 0.0, 0.0])
-            cam_info_all[cam_info['camera_name']]['distortion'] = np.array(distortion[:4], dtype=np.float64)
-            cam_info_all[cam_info['camera_name']]['is_fisheye'] = cam_info['camera_name'] in FISHEYE_CAMERAS
-            
-            # extrinsic 4*4
-            quat = cam_info["extrinsic"]["quaternion"]
-            trsl = cam_info["extrinsic"]["translation"]
-            cam_info_all[cam_info['camera_name']]['extrinsic'] = np.eye(4)
-            cam_info_all[cam_info['camera_name']]['extrinsic'][:3, :3] = R.from_quat([quat["x"], quat["y"], quat["z"], quat["w"]]).as_matrix()
-            cam_info_all[cam_info['camera_name']]['extrinsic'][:3, :3] = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]]) @ cam_info_all[cam_info['camera_name']]['extrinsic'][:3, :3]
-            cam_info_all[cam_info['camera_name']]['extrinsic'][:3, 3] = np.array([trsl["x"], trsl["y"], trsl["z"]]) 
-
-            cam_info_all[cam_info['camera_name']]['size'] = [cam_info["height"], cam_info["width"]]
-    
-    cam_id_2_name = {v['id']: k for k, v in cam_info_all.items()}
-    
-    pose_info = {}
-    for ego_info in tqdm(uniscene['ego_status']):
-        timestamp = int(round(ego_info['timestamp'], 3)*1000)
-        quat = ego_info['ego_orientation']
-        trsl = ego_info['ego_position']
-        pose_info[timestamp] = np.eye(4)
-        pose_info[timestamp][:3, :3] = R.from_quat([quat["x"], quat["y"], quat["z"], quat["w"]]).as_matrix()
-        pose_info[timestamp][:3, 3] = np.array([trsl["x"], trsl["y"], trsl["z"]])   
+    uniscene = load_uniscene(data_root)
+    active_cams, cam_id_2_name = build_cam_info_all(uniscene)
+    pose_info = build_pose_info(uniscene)
 
     os.makedirs(output_path, exist_ok=True)
     cameras, images, points3D = {}, {}, {}
     image_id = 0
 
-    # keep all camera img size to same in h_min, w_min
-    h_new, w_new = cam_info_all['center_camera_fov120']['size']
-    
-    for cam in cam_info_all.keys():
-        h, w = cam_info_all[cam]['size']
+    h_new, w_new = active_cams["center_camera_fov120"]["size"]
+    for cam in active_cams.keys():
+        h, w = active_cams[cam]["size"]
         h_new = min(h_new, h)
         w_new = min(w_new, w)
 
-    # select all frames
-    for jdx, sensor_info in enumerate(tqdm(uniscene['sensor_frames'])):
-        timestamp = int(round(sensor_info['timestamp'], 3)*1000)
+    init_pose = find_init_pose(uniscene, active_cams, cam_id_2_name, pose_info)
+    for sensor_info in tqdm(uniscene["sensor_frames"]):
+        timestamp = int(round(sensor_info["timestamp"], 3) * 1000)
         lidar2enu = pose_info[timestamp]
-        for camera_data in sensor_info['camera_data']:
-            if camera_data['sensor_id'] in cam_id_2_name.keys():
-                cam = cam_id_2_name[camera_data['sensor_id']]
-                sensor2lidar = cam_info_all[cam]['extrinsic']
-                dst_cam = os.path.join(output_path, "images", cam)
-                if not os.path.exists(dst_cam):
-                    os.makedirs(dst_cam, exist_ok=True)
-                src_img_name = camera_data['file_path'].split("/")[-1]
-                src_img_name, suffix = os.path.splitext(src_img_name)
-                src_img_abs_path = os.path.join(data_root, camera_data['file_path'])
-                rgb_img = cv2.imread(src_img_abs_path)
-                h, w, _ = rgb_img.shape
+        for camera_data in sensor_info["camera_data"]:
+            if camera_data["sensor_id"] not in cam_id_2_name:
+                continue
+            cam = cam_id_2_name[camera_data["sensor_id"]]
+            sensor2lidar = active_cams[cam]["extrinsic"]
+            dst_cam = os.path.join(output_path, "images", cam)
+            os.makedirs(dst_cam, exist_ok=True)
+            src_img_name = camera_data["file_path"].split("/")[-1]
+            src_img_name, suffix = os.path.splitext(src_img_name)
+            src_img_abs_path = os.path.join(data_root, camera_data["file_path"])
+            rgb_img = cv2.imread(src_img_abs_path)
+            h, w, _ = rgb_img.shape
 
-                K = cam_info_all[cam]['intrinsic']
-                fx, fy, cx, cy = K[0], K[1], K[2], K[3]
+            K = active_cams[cam]["intrinsic"]
+            fx, fy, cx, cy = K[0], K[1], K[2], K[3]
 
-                rgb_img = cv2.resize(rgb_img, (w_new, h_new), interpolation=cv2.INTER_NEAREST)
-                fx *= w_new / w
-                fy *= h_new / h
-                cx *= w_new / w
-                cy *= h_new / h 
-                cv2.imwrite(os.path.join(dst_cam, str(timestamp)+suffix), rgb_img)
-                h, w = h_new, w_new
+            rgb_img = cv2.resize(rgb_img, (w_new, h_new), interpolation=cv2.INTER_NEAREST)
+            fx *= w_new / w
+            fy *= h_new / h
+            cx *= w_new / w
+            cy *= h_new / h
+            cv2.imwrite(os.path.join(dst_cam, str(timestamp) + suffix), rgb_img)
+            h, w = h_new, w_new
 
-                sensor2enu = np.matmul(lidar2enu, sensor2lidar)
-                if jdx == 0 and cam == "center_camera_fov120":
-                    init_pose = sensor2enu
-                
-                sensor2enu = np.linalg.inv(init_pose) @ sensor2enu
+            sensor2enu = np.matmul(lidar2enu, sensor2lidar)
+            sensor2enu = np.linalg.inv(init_pose) @ sensor2enu
 
-                enu2sensor = np.linalg.inv(sensor2enu)
-                qvec = rotmat2qvec(enu2sensor[:3, :3])
-                tvec = enu2sensor[:3, 3]
+            enu2sensor = np.linalg.inv(sensor2enu)
+            qvec = rotmat2qvec(enu2sensor[:3, :3])
+            tvec = enu2sensor[:3, 3]
 
-                image_id += 1
-                images[image_id] = Image(
-                    id=image_id,
-                    qvec=qvec,
-                    tvec=tvec,
-                    camera_id=cam_info_all[cam]['colmap_id'],
-                    name=cam+"/"+str(timestamp)+suffix,
-                    xys=np.array([]),
-                    point3D_ids=np.array([])
-                )
-                
-                if cam_info_all[cam].get('is_fisheye', False):
-                    k1, k2, k3, k4 = cam_info_all[cam]['distortion']
-                    camera_params = np.array([fx, fy, cx, cy, k1, k2, k3, k4])
-                    camera_model = "OPENCV_FISHEYE"
-                else:
-                    camera_params = np.array([fx, fy, cx, cy])
-                    camera_model = "PINHOLE"
-                cameras[cam_info_all[cam]['colmap_id']] = Camera(
-                    id=cam_info_all[cam]['colmap_id'],
-                    model=camera_model,
-                    width=w,
-                    height=h,
-                    params=camera_params
-                )
+            image_id += 1
+            images[image_id] = Image(
+                id=image_id,
+                qvec=qvec,
+                tvec=tvec,
+                camera_id=active_cams[cam]["colmap_id"],
+                name=cam + "/" + str(timestamp) + suffix,
+                xys=np.array([]),
+                point3D_ids=np.array([]),
+            )
+
+            if active_cams[cam].get("is_fisheye", False):
+                k1, k2, k3, k4 = active_cams[cam]["distortion"]
+                camera_params = np.array([fx, fy, cx, cy, k1, k2, k3, k4])
+                camera_model = "OPENCV_FISHEYE"
+            else:
+                camera_params = np.array([fx, fy, cx, cy])
+                camera_model = "PINHOLE"
+            cameras[active_cams[cam]["colmap_id"]] = Camera(
+                id=active_cams[cam]["colmap_id"],
+                model=camera_model,
+                width=w,
+                height=h,
+                params=camera_params,
+            )
 
     cameras = OrderedDict(sorted(cameras.items(), key=lambda x: x[0]))
-    
-    # write colmap sparse init model
+
     output_model_path = os.path.join(output_path, "colmap/sparse_init")
     os.makedirs(output_model_path, exist_ok=True)
-    
+
     write_model(
-        cameras = cameras,
-        images = images,
-        points3D = points3D,
-        path = output_model_path,
-        ext = ".txt"
+        cameras=cameras,
+        images=images,
+        points3D=points3D,
+        path=output_model_path,
+        ext=".txt",
+    )
+
+    filter_sparse_init_sfm(
+        output_model_path,
+        os.path.join(output_path, "colmap/sparse_init_sfm"),
     )

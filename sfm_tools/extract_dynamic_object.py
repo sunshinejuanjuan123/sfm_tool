@@ -8,6 +8,7 @@ import open3d as o3d
 import cv2
 import random
 from sfm_tools.feature_extract_match.model.read_write_model import read_model
+from combine_lidar_sfm_points import collect_frame_lidar_points, load_gt_jsonl
 
 
 def _resolve_sparse_enu_dir(gs_data_root):
@@ -64,6 +65,7 @@ if __name__ == "__main__":
     data_root = args.data_root
     unisceneproto = os.path.join(data_root, "plannerGt/unisceneproto.json")
     uniscene = json.load(open(unisceneproto, "r"))
+    gt_frames = load_gt_jsonl(data_root)
 
     gs_data_root = args.gs_data_root
     sparse_dir = _resolve_sparse_enu_dir(gs_data_root)
@@ -97,8 +99,11 @@ if __name__ == "__main__":
         5: "Truck",
         6: "Other"}
 
-    for objects_info in uniscene['tracks']:
-        for track_frame_info in objects_info['object_states']:
+    sdc_track_index = uniscene.get("sdc_track_index", 0)
+    for track_idx, objects_info in enumerate(uniscene["tracks"]):
+        if track_idx == sdc_track_index:
+            continue
+        for track_frame_info in objects_info["object_states"]:
             object_timestamp = int(round(track_frame_info['timestamp'], 3)*1000)
 
             skip_timestamp = False

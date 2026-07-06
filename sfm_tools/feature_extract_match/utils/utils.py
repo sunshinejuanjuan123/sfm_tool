@@ -3,10 +3,10 @@ import os
 env_value = os.getenv("SFM_IMG_PAIR_TIME_INTERVAL", "").strip()
 
 try:
-    SFM_IMG_PAIR_TIME_INTERVAL = float(env_value) if env_value else 2
+    SFM_IMG_PAIR_TIME_INTERVAL = float(env_value) if env_value else 0.5
 except ValueError:
     print(f"Warning: Invalid SFM_IMG_PAIR_TIME_INTERVAL='{env_value}', using default value 2.")
-    SFM_IMG_PAIR_TIME_INTERVAL = 2
+    SFM_IMG_PAIR_TIME_INTERVAL = 0.5
 
 print(f"SfM: SFM_IMG_PAIR_TIME_INTERVAL={SFM_IMG_PAIR_TIME_INTERVAL}")
 

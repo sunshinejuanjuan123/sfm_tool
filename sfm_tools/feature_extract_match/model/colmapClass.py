@@ -235,7 +235,8 @@ def add_keypoints(db, h5_path, image_path, img_ext, sparse_init_dir):
                         'center_camera_fov30': 7,
                         'front_camera_fov195': 8,
                         'rear_camera_fov195': 9,
-                        'right_camera_fov195': 10}
+                        'right_camera_fov195': 10,
+                        'left_camera_fov195': 11}
 
     for camera_name in tqdm(list(keypoint_f.keys()), desc='add_keypoints'):
         for image_name in tqdm(list(keypoint_f[camera_name].keys())):

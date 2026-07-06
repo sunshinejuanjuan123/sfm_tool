@@ -6,8 +6,16 @@ import torch
 import argparse
 
 from sfm_tools.feature_extract_match.utils.utils import remove_db, get_img_pairs
-from sfm_tools.feature_extract_match.model.detect_match import extract_by_superpoint, match_by_superglue, filter_match_by_adalam
+from sfm_tools.feature_extract_match.model.detect_match import (
+    clear_partial_match_files,
+    extract_by_superpoint,
+    feature_extract_ready,
+    filter_match_by_adalam,
+    match_by_superglue,
+)
 from sfm_tools.feature_extract_match.model.colmapClass import import_into_colmap
+
+from sfm_tools.uniscene_cameras import SFM_CAMERAS
 
 class GeneralConfig(enum.Enum):
     superpoint_model_path = os.path.join(os.path.dirname(__file__), 'third_party/superpoint.pth.tar')
@@ -78,6 +86,8 @@ class ImageMatchingDB:
 
         img_fnames = []
         for cam in os.listdir(img_dir):
+            if cam not in SFM_CAMERAS:
+                continue
             for img_name in os.listdir(os.path.join(img_dir, cam)):
                 img_path = os.path.join(img_dir, cam, img_name)
                 img_fnames.append(img_path)
@@ -85,8 +95,32 @@ class ImageMatchingDB:
         feature_dir = os.path.join(self.data_root, "colmap/feature_sp_sg")
         os.makedirs(feature_dir, exist_ok=True)
 
-        # extract_features_by_superpoint
-        extract_by_superpoint(img_fnames, device=self.device, feature_dir=feature_dir, seg_dir=seg_dir, config=self.spsg_conf)
+        skip_extract = os.getenv("SKIP_FEATURE_EXTRACT", "").lower() in ("1", "true")
+        if skip_extract and feature_extract_ready(feature_dir):
+            print(f"Reuse existing SuperPoint features under {feature_dir}")
+        else:
+            for fn in (
+                "lafs.h5",
+                "keypoints.h5",
+                "score.h5",
+                "imagesize.h5",
+                "descriptors.h5",
+                "matches.h5",
+                "matches_score.h5",
+                "matches_adalam.h5",
+            ):
+                path = os.path.join(feature_dir, fn)
+                if os.path.isfile(path):
+                    os.remove(path)
+            extract_by_superpoint(
+                img_fnames,
+                device=self.device,
+                feature_dir=feature_dir,
+                seg_dir=seg_dir,
+                config=self.spsg_conf,
+            )
+
+        clear_partial_match_files(feature_dir)
 
         # create_match_pairs
         # exhaustive

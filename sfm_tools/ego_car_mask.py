@@ -31,6 +31,10 @@ if __name__ == "__main__":
 
     os.makedirs(dst_img_dir, exist_ok=True)
 
+    def is_fisheye_cam(cam_name: str) -> bool:
+        name = cam_name.lower()
+        return "fov200" in name or "fov195" in name
+
     uniscene_ego_car_mask = os.path.join(data_root, "pvbGt/ego_car_masks")
 
     if os.path.exists(uniscene_ego_car_mask):
@@ -77,10 +81,7 @@ if __name__ == "__main__":
                     "right_front_camera",
                     "rear_camera",
                     "center_camera_fov30",
-                    "front_camera_fov195",
-                    "rear_camera_fov195",
-                    "right_camera_fov195",
-                ]:
+                ] or is_fisheye_cam(cam):
                     for img_name in os.listdir(os.path.join(src_img_dir, cam)):
                         rgb_img = cv2.imread(os.path.join(src_img_dir, cam, img_name))
                         

@@ -142,6 +142,40 @@ def extract_by_superpoint(img_fnames,
             f_size[img_fname] = np.array(data['original_size'][0])
     return 
 
+def clear_partial_match_files(feature_dir: str) -> None:
+    for fn in ("matches.h5", "matches_score.h5", "matches_adalam.h5"):
+        path = os.path.join(feature_dir, fn)
+        if os.path.isfile(path):
+            os.remove(path)
+
+
+def feature_extract_ready(feature_dir: str) -> bool:
+    lafs_path = os.path.join(feature_dir, "lafs.h5")
+    if not os.path.isfile(lafs_path):
+        return False
+    try:
+        with h5py.File(lafs_path, "r") as f_laf:
+            if len(f_laf.keys()) == 0:
+                return False
+            for cam in f_laf.keys():
+                group = f_laf[cam]
+                if not isinstance(group, h5py.Group) or len(group.keys()) == 0:
+                    return False
+                sample = next(iter(group.keys()))
+                _ = group[sample].shape
+        return True
+    except (OSError, KeyError, StopIteration):
+        return False
+
+
+def read_feature_bundle(f_laf, f_desc, f_score, name: str):
+    return {
+        "keypoints": f_laf[name].__array__(),
+        "descriptors": f_desc[name].__array__(),
+        "scores": f_score[name].__array__(),
+    }
+
+
 def superglue_model_init(config, device=torch.device('cpu')):
     conf = config.matcher_confs.value['superpoint']
     superglue_model = SuperGlue(conf['model']).eval().to(device)
@@ -156,6 +190,7 @@ def match_by_superglue(img_fnames,
                        debug=False):
     model = superglue_model_init(config, device=device)
     matched = set()
+    clear_partial_match_files(feature_dir)
 
     with h5py.File(f'{feature_dir}/lafs.h5', mode='r') as f_laf, \
             h5py.File(f'{feature_dir}/score.h5', mode='r') as f_score, \
@@ -164,6 +199,7 @@ def match_by_superglue(img_fnames,
             h5py.File(f'{feature_dir}/matches.h5', mode='w') as match_file, \
             h5py.File(f'{feature_dir}/matches_score.h5', mode='w') as matches_score_file:
 
+        skipped = 0
         for pair in tqdm(index_pairs, smoothing=.1):
             name0, name1 = img_fnames[pair[0]], img_fnames[pair[1]]
             name1 = name1.replace('\n', '')
@@ -174,10 +210,30 @@ def match_by_superglue(img_fnames,
             if len({(name0, name1), (name1, name0)} & matched):
                 continue
             if name0 not in f_laf or name1 not in f_laf:
+                skipped += 1
                 continue
 
-            data = {'keypoints0': f_laf[name0].__array__(), 'descriptors0': f_desc[name0].__array__(), 'scores0': f_score[name0].__array__(), 
-                    'keypoints1': f_laf[name1].__array__(), 'descriptors1': f_desc[name1].__array__(), 'scores1': f_score[name1].__array__()}
+            try:
+                feat0 = read_feature_bundle(f_laf, f_desc, f_score, name0)
+                feat1 = read_feature_bundle(f_laf, f_desc, f_score, name1)
+            except (KeyError, OSError, ValueError) as exc:
+                skipped += 1
+                if skipped <= 5:
+                    print(f"Skip pair ({name0}, {name1}): {exc}")
+                continue
+
+            if feat0["keypoints"].size == 0 or feat1["keypoints"].size == 0:
+                skipped += 1
+                continue
+
+            data = {
+                'keypoints0': feat0["keypoints"],
+                'descriptors0': feat0["descriptors"],
+                'scores0': feat0["scores"],
+                'keypoints1': feat1["keypoints"],
+                'descriptors1': feat1["descriptors"],
+                'scores1': feat1["scores"],
+            }
             
             data = {
                 k: torch.from_numpy(v)[None].float().to(device)
@@ -201,6 +257,8 @@ def match_by_superglue(img_fnames,
             group.create_dataset(name1, data=matches)
             group_score.create_dataset(name1, data=matching_score)
             matched |= {(name0, name1), (name1, name0)}
+        if skipped:
+            print(f"match_by_superglue skipped {skipped} pairs")
     return
 
 def filter_match_by_adalam(img_fnames,
@@ -210,6 +268,13 @@ def filter_match_by_adalam(img_fnames,
                            config=None):
     ADALAM_CONFIG = config.adalam_confs.value
     adalam_filter = adalam.AdalamFilter(ADALAM_CONFIG)
+
+    matches_path = f'{feature_dir}/matches.h5'
+    if not os.path.isfile(matches_path):
+        raise FileNotFoundError(f"missing matches file: {matches_path}")
+    adalam_path = f'{feature_dir}/matches_adalam.h5'
+    if os.path.isfile(adalam_path):
+        os.remove(adalam_path)
 
     keypoints_file = h5py.File(f'{feature_dir}/keypoints.h5', 'r')
     matches_file = h5py.File(f'{feature_dir}/matches.h5', 'r+')
